@@ -1,6 +1,7 @@
 import axios from "axios";
 
-const API_URL = "http://127.0.0.1:8000"; // ✅ Ensure backend is running on this URL
+// ✅ Use environment variable for backend URL (set in Vercel)
+const API_URL = process.env.REACT_APP_BASE_URL || "https://extreme-rag-backend.onrender.com";
 
 export const uploadPDFs = async (files) => {
   const formData = new FormData();
