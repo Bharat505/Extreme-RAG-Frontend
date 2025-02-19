@@ -13,7 +13,6 @@ const FileUpload = () => {
   const [files, setFiles] = useState([]);
   const [message, setMessage] = useState("");
   const [processing, setProcessing] = useState(false);
-  const [currentStep, setCurrentStep] = useState("");
   const [finalSummaries, setFinalSummaries] = useState({});
   const [comparisons, setComparisons] = useState({});
   const [topQuestions, setTopQuestions] = useState({ overall: [], perPDF: {} });
@@ -33,188 +32,205 @@ const FileUpload = () => {
 
   const handleUpload = async () => {
     if (files.length === 0) {
-      setMessage("No files selected.");
+      setMessage("⚠️ No files selected.");
       return;
     }
 
     setProcessing(true);
     setMessage("📤 Uploading and processing PDFs...");
-    setCurrentStep("🔍 Extracting Content...");
 
     try {
       const result = await uploadPDFs(files);
       if (!result) throw new Error("Processing failed");
-      setMessage("🔄 Processing started. Fetching results...");
+      setMessage("✅ Processing started. Fetching results...");
+
+      // ✅ Start polling results immediately
       pollResults();
     } catch (error) {
       console.error("❌ Processing error:", error);
-      setMessage("Error during processing.");
+      setMessage("❌ Error during processing.");
     }
+
+    setProcessing(false);
   };
 
   const pollResults = async () => {
-    let pollAttempts = 0;
-    const maxPollAttempts = 10;
     const interval = setInterval(async () => {
-      pollAttempts++;
-      if (pollAttempts >= maxPollAttempts) {
-        clearInterval(interval);
-        setProcessing(false);
-        setMessage("⚠️ Could not fetch all results. Please try again later.");
-        return;
-      }
-
       try {
-        setCurrentStep("📑 Summarizing Content...");
         const summaries = await fetchFinalSummaries();
-        const comps = await fetchComparisons();
-        const topQs = await fetchTopQuestions();
-        const tables = await fetchTableVisuals();
+        if (summaries) setFinalSummaries(summaries);
 
-        if (summaries && Object.keys(summaries).length > 0) {
-          setFinalSummaries(summaries);
-          setCurrentStep("📌 Final Summaries Available!");
-        }
-        if (comps && Object.keys(comps).length > 0) {
-          setComparisons(comps);
-          setCurrentStep("🔎 Comparisons Available!");
-        }
+        const comps = await fetchComparisons();
+        if (comps) setComparisons(comps);
+
+        const topQs = await fetchTopQuestions();
         if (topQs) {
           setTopQuestions({
             overall: topQs.top_10_overall_questions || [],
             perPDF: topQs.top_10_per_pdf_questions || {},
           });
-          setCurrentStep("❓ Top Questions Available!");
-        }
-        if (tables && tables.table_visuals && tables.table_visuals.length > 0) {
-          setTableVisuals(tables.table_visuals.slice(-10));
-          setCurrentStep("📊 Table Visualizations Ready!");
         }
 
+        const tables = await fetchTableVisuals();
+        if (tables && Array.isArray(tables)) {
+          setTableVisuals(tables.slice(-5)); // ✅ Show only last 5 tables
+        }
+
+        // ✅ Stop polling when all results are available
         if (summaries && comps && topQs && tables) {
           clearInterval(interval);
-          setProcessing(false);
           setMessage("✅ Processing complete!");
-          setCurrentStep("");
         }
       } catch (error) {
         console.error("⚠️ Error fetching results:", error);
       }
-    }, 5000);
+    }, 3000); // ✅ Poll every 3 seconds
   };
 
   const handleAskQuestion = async () => {
-    if (!question) {
-      setMessage("Please enter a question.");
+    if (!question.trim()) {
+      setMessage("⚠️ Please enter a question.");
       return;
     }
 
     setMessage("🔎 Fetching answer...");
-    try {
-      const response = await askQuestion(question);
-      setAnswer(response.answer);
-      setSources(response.source || []);
-    } catch (error) {
-      console.error("❌ Error fetching answer:", error);
-      setMessage("Error retrieving answer.");
-    } finally {
-      setMessage("");
-    }
+    const response = await askQuestion(question);
+
+    setAnswer(response.answer);
+    setSources(response.source || []);
+    setMessage("");
   };
 
   return (
-    <div style={containerStyle}>
-      <h1 style={titleStyle}>📄 Smart PDF Insights Assistant</h1>
-      <p style={subTextStyle}>
-        🔍 Please be patient! This process extracts, chunks, analyzes, and provides top questions, summaries, and comparisons.
-      </p>
-
-      <div {...getRootProps()} style={dropzoneStyle}>
+    <div style={{ padding: "20px", fontFamily: "Arial, sans-serif" }}>
+      {/* 📂 Upload Section */}
+      <h2 style={{ textAlign: "center", fontWeight: "bold" }}>📂 Upload PDF for Processing</h2>
+      <div
+        {...getRootProps()}
+        style={{
+          border: "2px dashed #aaa",
+          padding: "20px",
+          textAlign: "center",
+          cursor: "pointer",
+          marginBottom: "10px",
+        }}
+      >
         <input {...getInputProps()} />
-        <p>📁 Drag & drop PDFs here, or click to select multiple files</p>
+        <h3>📁 PDF Upload</h3>
+        <p>Drag & drop PDFs here, or click to select multiple files</p>
       </div>
 
-      <button onClick={handleUpload} disabled={processing} style={buttonStyle}>
+      {files.length > 0 && (
+        <div>
+          <h4>📄 Selected Files:</h4>
+          <ul>
+            {files.map((file, index) => (
+              <li key={index}>
+                {file.name} ({(file.size / 1024).toFixed(2)} KB)
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <button onClick={handleUpload} disabled={processing} style={{ marginTop: "10px" }}>
         {processing ? "Processing..." : "Upload & Process"}
       </button>
 
-      {currentStep && <p style={{ color: "blue", fontWeight: "bold" }}>{currentStep}</p>}
-
       <hr />
 
+      {/* 📌 Final Summaries */}
       <h3>📌 Final Summaries</h3>
-      {Object.entries(finalSummaries).map(([pdfId, summary]) => (
-        <div key={pdfId} style={resultBoxStyle}>
-          <h4>📄 {summary["Title & Subject"]}</h4>
-          {Object.entries(summary)
-            .filter(([key, value]) => value !== null && key !== "Title & Subject")
-            .map(([key, value]) => (
-              <p key={key}><strong>{key}:</strong> {value}</p>
-          ))}
-        </div>
-      ))}
+      {Object.keys(finalSummaries).length > 0 ? (
+        Object.entries(finalSummaries).map(([pdfId, summary]) => (
+          <div key={pdfId} style={{ marginBottom: "10px" }}>
+            <h4>📄 {summary["Title & Subject"]}</h4>
+            {Object.entries(summary).map(([key, value]) => (
+              key !== "Title & Subject" && (
+                <p key={key}><strong>{key}:</strong> {value}</p>
+              )
+            ))}
+          </div>
+        ))
+      ) : (
+        <p>"No summaries available."</p>
+      )}
 
+      {/* 🔎 Comparisons */}
       <h3>🔎 Comparisons</h3>
       {Object.keys(comparisons).length > 0 ? (
-        <div style={resultBoxStyle}>
+        <div>
           {Object.entries(comparisons).map(([key, value]) => (
             <p key={key}><strong>{key}:</strong> {value}</p>
           ))}
         </div>
       ) : (
-        <p>No comparisons available.</p>
+        <p>"No comparisons available."</p>
       )}
 
+      {/* ❓ Top Questions */}
       <h3>❓ Top Questions</h3>
       {topQuestions.overall.length > 0 ? (
-        <div style={resultBoxStyle}>
-          <h4>🌟 Overall Top Questions</h4>
-          <ul>
-            {topQuestions.overall.map((q, index) => (
-              <li key={index} style={questionStyle} onClick={() => setQuestion(q)}>
-                {q}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : (
-        <p>No top questions available.</p>
-      )}
-
-      <h3>📊 Table Visualizations</h3>
-      {tableVisuals.length > 0 ? (
         <ul>
-          {tableVisuals.map((url, index) => (
-            <li key={index}>
-              <a href={url} target="_blank" rel="noopener noreferrer">
-                View Visualization {index + 1}
-              </a>
+          {topQuestions.overall.map((q, index) => (
+            <li key={index} onClick={() => setQuestion(q)} style={{ cursor: "pointer", color: "blue" }}>
+              {q}
             </li>
           ))}
         </ul>
       ) : (
-        <p>No table visualizations available.</p>
+        <p>"No top questions available."</p>
       )}
 
-      <h3>❓ Ask a Question</h3>
-      <input type="text" value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="Enter your question..." style={inputStyle} />
-      <button onClick={handleAskQuestion} style={buttonStyle}>Ask</button>
+      {/* 📊 Table Visualizations */}
+      <h3>📊 Table Visualizations</h3>
+      {tableVisuals.length > 0 ? (
+        <div>
+          <h4>🖼️ Latest Table Visualizations</h4>
+          {tableVisuals.map((filePath, index) => (
+            <iframe
+              key={index}
+              src={`http://127.0.0.1:8000/static/table_visualizations/${filePath}`}
+              width="100%"
+              height="400px"
+              style={{ border: "none", marginBottom: "10px" }}
+              title={`Table Visualization ${index + 1}`}
+            />
+          ))}
+        </div>
+      ) : (
+        <p>"No table visualizations available."</p>
+      )}
 
-      {answer && <div style={resultBoxStyle}><h4>✅ Answer:</h4><p>{answer}</p></div>}
+      <hr />
+
+      {/* ❓ Ask a Question */}
+      <h3>❓ Ask a Question</h3>
+      <input
+        type="text"
+        value={question}
+        onChange={(e) => setQuestion(e.target.value)}
+        placeholder="Enter your question..."
+        style={{ width: "100%", padding: "10px", marginBottom: "10px" }}
+      />
+      <button onClick={handleAskQuestion} style={{ marginBottom: "10px" }}>Ask</button>
+
+      {answer && (
+        <div>
+          <h4>✅ Answer:</h4>
+          <p>{answer}</p>
+          {sources.length > 0 && (
+            <div>
+              <h4>📌 Sources:</h4>
+              <ul>{sources.map((src, index) => <li key={index}>{src}</li>)}</ul>
+            </div>
+          )}
+        </div>
+      )}
 
       {message && <p>{message}</p>}
     </div>
   );
 };
-
-// ✅ Added Missing Styles
-const containerStyle = { padding: "20px", fontFamily: "Arial, sans-serif" };
-const titleStyle = { textAlign: "center", fontSize: "26px", fontWeight: "bold" };
-const subTextStyle = { textAlign: "center", color: "gray", fontSize: "16px", marginBottom: "15px" };
-const dropzoneStyle = { border: "2px dashed #aaa", padding: "20px", textAlign: "center", cursor: "pointer" };
-const resultBoxStyle = { backgroundColor: "#f8f9fa", padding: "10px", borderRadius: "8px", marginBottom: "10px" };
-const buttonStyle = { padding: "10px", backgroundColor: "#007BFF", color: "white", border: "none", cursor: "pointer" };
-const inputStyle = { width: "100%", padding: "10px", marginBottom: "10px" };
-const questionStyle = { cursor: "pointer", color: "#007bff", marginBottom: "5px" };
 
 export default FileUpload;
